@@ -25,3 +25,4 @@ def get_random_location(locations: dict) -> Optional[tuple[str, str]]:
 
 
 
+

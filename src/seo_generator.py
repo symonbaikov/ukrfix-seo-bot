@@ -1,16 +1,16 @@
 """
-SEO generator module - generates articles via OpenAI API.
+SEO generator module - generates articles via Google Gemini API.
 Returns tuple of (title, html_content).
 """
 
-from openai import OpenAI
-from src.config import get_openai_api_key
+import google.generativeai as genai
+from src.config import get_gemini_api_key, get_gemini_model_name
 from src.utils.logger import log_error
 
 
 def generate_article(country: str, city: str, category: str, google_info: str) -> tuple[str, str]:
     """
-    Generate SEO article using OpenAI API.
+    Generate SEO article using Google Gemini API.
     
     Args:
         country: Country name
@@ -51,17 +51,32 @@ def generate_article(country: str, city: str, category: str, google_info: str) -
 """
     
     try:
-        client = OpenAI(api_key=get_openai_api_key())
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": prompt}]
-        )
+        # Configure Gemini API
+        genai.configure(api_key=get_gemini_api_key())
         
-        html_content = response.choices[0].message.content
+        # Get model name from config
+        model_name = get_gemini_model_name()
+        model = genai.GenerativeModel(model_name)
+        
+        # Generate content
+        response = model.generate_content(prompt)
+        
+        html_content = response.text
         return topic, html_content
     except Exception as e:
-        log_error(f"OpenAI API error: {e}")
+        error_msg = str(e)
+        
+        # Check for quota/billing errors
+        if "429" in error_msg or "quota" in error_msg.lower() or "billing" in error_msg.lower():
+            log_error(f"Gemini API quota/billing error: {error_msg}")
+            log_error("The model may require a paid tier or quota is exceeded.")
+            log_error(f"Current model: {get_gemini_model_name()}")
+            log_error("Try using 'gemini-1.5-flash' which is available on free tier.")
+            log_error("Or check your billing/quota at: https://ai.dev/usage?tab=rate-limit")
+        
+        log_error(f"Gemini API error: {e}")
         raise
+
 
 
 

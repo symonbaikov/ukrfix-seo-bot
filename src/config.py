@@ -50,4 +50,22 @@ def get_pexels_api_key() -> str:
     return key
 
 
+def get_gemini_api_key() -> str:
+    """Get Google Gemini API key from environment."""
+    key = os.getenv("GEMINI_API_KEY")
+    if not key:
+        raise ValueError("GEMINI_API_KEY environment variable is not set")
+    return key
+
+
+def get_gemini_model_name() -> str:
+    """Get Gemini model name from environment, or use default.
+    
+    Default: gemini-1.5-flash (stable, free tier available)
+    Alternative: gemini-2.0-flash-exp (experimental, may require paid tier)
+    """
+    return os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+
+
+
 

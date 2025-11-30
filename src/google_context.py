@@ -1,6 +1,6 @@
 """
 Google context module - collects context from Google search.
-Returns text that will be used in OpenAI prompt.
+Returns text that will be used in AI prompt for article generation.
 """
 
 from typing import Optional
@@ -30,6 +30,7 @@ def get_google_context(query: str) -> str:
     except Exception as e:
         log_error(f"Google search failed: {e}")
         return "Информация не найдена."
+
 
 
 
