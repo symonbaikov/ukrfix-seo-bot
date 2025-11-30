@@ -1,0 +1,292 @@
+---
+alwaysApply: true
+---
+
+# Architecture — ukrfix-seo-bot
+
+## 1. Общая идея
+
+Проект `ukrfix-seo-bot` — это автономный сервис для **Programmatic SEO**:
+
+- генерирует SEO-статьи по матрице `[Страна] → [Город] → [Категория]`,
+- собирает дополнительный контекст из Google,
+- подбирает релевантные изображения через Pexels,
+- публикует статьи в WordPress через REST API,
+- работает циклично (примерно 10–15 статей в день),
+- ведёт историю, чтобы не создавать дубли.
+
+Бот задуман как **долгоживущий фоновый процесс**, который может крутиться на VPS / сервере 24/7.
+
+---
+
+## 2. Высокоуровневая архитектура
+
+Условные слои:
+
+1. **Application layer (бот)**  
+   - orchestration логика: выбор задачи, последовательные шаги, паузы, обработка ошибок верхнего уровня.
+   - файл: `src/bot.py`
+
+2. **Domain / Business logic**  
+   - генерация контента (SEO-логика),
+   - выбор городов/категорий,
+   - работа с историей.
+   - файлы:  
+     - `src/seo_generator.py`  
+     - `src/google_context.py`  
+     - `src/database.py`  
+     - `src/models/*`
+
+3. **Integration layer (внешние сервисы)**  
+   - OpenAI API,  
+   - Pexels API,  
+   - WordPress REST API.
+   - файлы:  
+     - `src/image_service.py`  
+     - `src/wp_publisher.py`
+
+4. **Infrastructure layer**  
+   - конфиги,  
+   - логирование,  
+   - утилиты,  
+   - запуск,  
+   - Docker/деплой.
+   - файлы:  
+     - `src/config.py`  
+     - `src/utils/*`  
+     - `run.py`  
+     - `docker/*`
+
+---
+
+## 3. Модули и ответственность
+
+### 3.1. `run.py`
+**Роль:** единственная точка входа.
+
+- Инициализирует окружение.
+- Импортирует и вызывает `main()` из `src/bot.py`.
+- Никакой другой логики.
+
+```python
+from src.bot import main
+
+if __name__ == "__main__":
+    main()
+
+    3.2. src/bot.py
+
+Роль: оркестратор / главный цикл.
+
+Отвечает за:
+	•	запуск и инициализацию:
+	•	загрузка конфигов (config.py),
+	•	инициализация БД (database.init_db()),
+	•	выбор следующей комбинации [country, city, category],
+	•	последовательный вызов:
+	•	get_google_context() → контекст,
+	•	get_pexels_image() → URL картинки,
+	•	upload_image_to_wp() → featured_media_id,
+	•	generate_article() → (title, html_content),
+	•	publish_article() → пост на сайте,
+	•	mark_posted() → запись в SQLite,
+	•	управление паузами и циклом:
+	•	sleep 80–100 минут,
+	•	корректный логгинг шагов.
+
+Важно: bot.py НЕ должен знать детали API — только вызывает функции других модулей.
+
+⸻
+
+3.3. src/config.py
+
+Роль: единая точка доступа к конфигам.
+	•	Загружает .env (через dotenv).
+	•	Предоставляет функции:
+
+    get_wp_url()
+get_wp_username()
+get_wp_app_password()
+get_openai_api_key()
+get_pexels_api_key()
+
+
+	•	Любые обращения к переменным среды только через этот модуль.
+
+
+3.4. src/models/location_map.py
+
+Роль: матрица стран/городов.
+	•	Содержит структуру:
+
+    LOCATIONS = {
+  "Чехія": [...],
+  "Польща": [...],
+  ...
+}
+
+
+	•	Никакой логики, только данные и, при необходимости, простые helper-функции типа get_random_location().
+
+
+3.5. src/models/category_map.py
+
+Роль: категории и их маппинг.
+	•	Содержит:
+
+    CATEGORIES = {
+  "Ремонт квартир": "home renovation worker",
+  "Краса та здоров’я": "beauty salon spa",
+  ...
+}
+
+
+	•	Используется:
+	•	для формирования тем статьи,
+	•	для запроса картинок в Pexels.
+
+⸻
+
+3.6. src/database.py
+
+Роль: вся работа с SQLite.
+
+Функции:
+	•	init_db() — создание таблицы posted при старте.
+	•	is_posted(country, city, category) -> bool
+	•	mark_posted(country, city, category) -> None
+
+Только этот модуль общается с history.db. Остальные модули не знают, что за БД используется.
+
+⸻
+
+3.7. src/google_context.py
+
+Роль: сбор контекста из Google.
+	•	Функция get_google_context(query: str) -> str
+	•	Делает поиск (через google-search-python или другой провайдер).
+	•	Собирает краткие описания топ-результатов.
+	•	Возвращает текст, который пойдёт в prompt для OpenAI.
+
+⸻
+
+3.8. src/image_service.py
+
+Роль: работа с Pexels + загрузка медиа в WordPress.
+
+Функции:
+	•	get_pexels_image(query: str) -> Optional[str]
+	•	возвращает URL картинки или None.
+	•	upload_image_to_wp(image_url: str, title: str) -> Optional[int]
+	•	качает картинку,
+	•	отправляет в /wp-json/wp/v2/media,
+	•	возвращает media_id или None.
+
+Никакой логики генерации текста или публикации постов.
+
+⸻
+
+3.9. src/seo_generator.py
+
+Роль: генерация SEO-статей через OpenAI.
+
+Функция:
+generate_article(country: str, city: str, category: str, google_info: str) -> tuple[str, str]
+
+
+	•	формирует тему,
+	•	строит prompt строго по заданной структуре,
+	•	вызывает OpenAI API,
+	•	возвращает (title, html_content).
+
+⸻
+
+3.10. src/wp_publisher.py
+
+Роль: публикация статей в WordPress.
+
+Функция:
+
+publish_article(title: str, content: str, featured_media_id: Optional[int]) -> None
+
+
+	•	формирует payload,
+	•	вызывает /wp-json/wp/v2/posts,
+	•	устанавливает статус publish,
+	•	обрабатывает ошибки (логирует, но не падает весь бот).
+
+⸻
+
+3.11. src/utils/logger.py
+
+Роль: централизованное логирование.
+	•	Обёртка для print или стандартного logging.
+	•	Цель:
+	•	единый стиль логов,
+	•	возможность потом заменить на file-logging.
+
+Пример:
+
+
+def log(*args):
+    print("[UKRFIX-SEO-BOT]", *args)
+
+    4. Поток данных (Data Flow)
+	1.	Выбор задачи
+	•	bot.py → выбирает (country, city, category) из LOCATIONS и CATEGORIES.
+	•	Проверяет через database.is_posted() — если уже есть, ищет другую комбинацию.
+	2.	Контекст
+	•	Формирует поисковый запрос: "оголошення {category} {city} {country} форуми".
+	•	google_context.get_google_context(query) → возвращает текст.
+	3.	Картинка
+	•	Берёт англ. запрос из CATEGORIES[category].
+	•	image_service.get_pexels_image(query) → URL.
+	•	image_service.upload_image_to_wp(url, title) → media_id.
+	4.	Текст
+	•	seo_generator.generate_article(country, city, category, google_info) → (title, html_html).
+	5.	Публикация
+	•	wp_publisher.publish_article(title, html, media_id).
+	6.	История
+	•	database.mark_posted(country, city, category).
+	7.	Пауза
+	•	time.sleep(random.randint(4800, 6000)) (80–100 мин).
+
+⸻
+
+5. Обработка ошибок и устойчивость
+	•	Любые сетевые ошибки (OpenAI, Pexels, WP, Google):
+	•	логируются,
+	•	не останавливают весь бот,
+	•	бот делает попытку с другой комбинацией или уходит в sleep.
+	•	Ошибки БД:
+	•	критические → лог и завершение процесса (лучше рухнуть, чем портить историю).
+	•	Логика:
+	•	бот должен быть idempotent: если один шаг не прошёл, следующий цикл берёт новую задачу.
+
+⸻
+
+6. Расширение архитектуры
+
+Потенциальные расширения:
+	•	Панель мониторинга
+	•	Отдельный web-сервис (FastAPI / Flask) поверх history.db.
+	•	Просмотр опубликованных статей, логов, статуса бота.
+	•	Телеграм-уведомления
+	•	Отправка статуса после каждой успешной публикации.
+	•	Модуль notifications/telegram_notifier.py.
+	•	Шаблоны контента
+	•	Разные prompt-профили для разных категорий.
+	•	Хранение шаблонов в templates/.
+	•	Планировщик
+	•	Использование APScheduler или cron вместо ручного sleep.
+
+⸻
+
+7. Принципы
+	1.	Single Responsibility — каждый модуль делает одно.
+	2.	No hard-coded secrets — только через .env и config.py.
+	3.	Расширяемость — добавление новых стран/городов/категорий только через models/*.
+	4.	Прозрачность — всё, что делает бот, видно в логах.
+
+    Цель архитектуры — сделать бота простым в поддержке, расширяемым и безопасным для 24/7 работы.
+    
