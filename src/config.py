@@ -61,10 +61,9 @@ def get_gemini_api_key() -> str:
 def get_gemini_model_name() -> str:
     """Get Gemini model name from environment, or use default.
     
-    Default: gemini-1.5-flash (stable, free tier available)
-    Alternative: gemini-2.0-flash-exp (experimental, may require paid tier)
+    Default: gemini-2.5-flash (Gemini 2.5 Flash)
     """
-    return os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    return os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 
 

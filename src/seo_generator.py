@@ -66,13 +66,19 @@ def generate_article(country: str, city: str, category: str, google_info: str) -
     except Exception as e:
         error_msg = str(e)
         
+        # Check for model not found errors (404)
+        if "404" in error_msg or "not found" in error_msg.lower():
+            log_error(f"Gemini API model not found: {error_msg}")
+            log_error(f"Current model: {get_gemini_model_name()}")
+            log_error("Please check available models at: https://ai.google.dev/models")
+            log_error(f"Make sure GEMINI_MODEL is set to 'gemini-2.5-flash' in your environment variables")
+        
         # Check for quota/billing errors
         if "429" in error_msg or "quota" in error_msg.lower() or "billing" in error_msg.lower():
             log_error(f"Gemini API quota/billing error: {error_msg}")
             log_error("The model may require a paid tier or quota is exceeded.")
             log_error(f"Current model: {get_gemini_model_name()}")
-            log_error("Try using 'gemini-1.5-flash' which is available on free tier.")
-            log_error("Or check your billing/quota at: https://ai.dev/usage?tab=rate-limit")
+            log_error("Check your billing/quota at: https://ai.dev/usage?tab=rate-limit")
         
         log_error(f"Gemini API error: {e}")
         raise
