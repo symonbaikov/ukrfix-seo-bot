@@ -6,6 +6,7 @@ Returns tuple of (title, html_content).
 import google.generativeai as genai
 from src.config import get_gemini_api_key, get_gemini_model_name
 from src.utils.logger import log_error
+import random
 
 
 def generate_article(country: str, city: str, category: str, google_info: str) -> tuple[str, str]:
@@ -21,33 +22,38 @@ def generate_article(country: str, city: str, category: str, google_info: str) -
     Returns:
         Tuple of (title, html_content)
     """
-    # Determine article topic based on category type
-    action = "найти клиентов на"
-    if "Продажа" in category or "Авто" in category:
-        action = "найти покупателей на"
-    if "Аренда" in category:
-        action = "найти арендаторов на"
+    # Determine article topic based on category type (Ukrainian)
+    # Use "Як знайти" or "Де знайти" randomly
+    start_phrase = random.choice(["Як знайти", "Де знайти"])
     
-    topic = f"Как {action} {category} в г. {city} ({country})"
+    action = "клієнтів на"
+    if "Продаж" in category or "Авто" in category:
+        action = "покупців на"
+    if "Оренда" in category:
+        action = "орендарів на"
+    
+    topic = f"{start_phrase} {action} {category} в г. {city} ({country})"
     
     prompt = f"""
-Напиши детальную, полезную SEO-статью для сайта UkrFix.com.
+Створи SEO-статтю для UkrFix.com на тему: {topic}
 
-Тема: {topic}
+ВАЖЛИВО: Починай одразу з контенту статті. Не додавай вступні фрази типу "Чудово", "Приступаємо", "Давайте створимо" тощо. Починай зразу з заголовка та контенту.
 
-Целевая аудитория: Украинцы, которые живут в {city} или планируют там работать/вести бизнес.
+Цільова аудиторія: Українці, які живуть у {city} або планують там працювати/вести бізнес.
 
-Актуальные данные из Google (используй для контекста):
+Актуальні дані з Google (використовуй для контексту):
 {google_info}
 
-Структура статьи (HTML формат, используй h2, h3, p, ul):
-1. Вступление: Ситуация на рынке {category} в {city}. Есть ли спрос?
-2. Где искать клиентов/покупателей (обзор местных сайтов объявлений {country}, группы Facebook).
-3. Почему UkrFix - это лучший новый вариант (бесплатно, ориентировано на своих, удобно).
-4. Пошаговая инструкция: Как правильно составить объявление, чтобы позвонили (добавь пример текста объявления).
-5. Заключение.
+Структура статті (HTML формат, використовуй h2, h3, p, ul):
+1. Вступ: Ситуація на ринку {category} у {city}. Чи є попит?
+2. Де шукати клієнтів/покупців (огляд місцевих сайтів оголошень {country}, групи Facebook).
+3. Чому UkrFix - це найкращий новий варіант (безкоштовно, орієнтовано на своїх, зручно).
+4. Покрокова інструкція: Як правильно скласти оголошення, щоб зателефонували (додай приклад тексту оголошення).
+5. Висновок.
 
-В конце статьи добавь кнопку (HTML): <a href="https://ukrfix.com/add-listing/" class="btn-submit">Подать объявление на UkrFix бесплатно</a>
+В кінці статті додай кнопку (HTML): <a href="https://ukrfix.com/add-listing/" class="btn-submit">Подати оголошення на UkrFix безкоштовно</a>
+
+Починай одразу з HTML контенту, без будь-яких коментарів або вступних фраз.
 """
     
     try:
@@ -62,6 +68,59 @@ def generate_article(country: str, city: str, category: str, google_info: str) -
         response = model.generate_content(prompt)
         
         html_content = response.text
+        
+        # Clean up: remove AI thinking/intro phrases if they appear
+        lines = html_content.split('\n')
+        cleaned_lines = []
+        intro_phrases_lower = [
+            "чудово, приступаємо",
+            "чудово, приступаємо до",
+            "чудово, давайте",
+            "чудово, давайте створимо",
+            "приступаємо до",
+            "давайте створимо",
+            "починаємо створення",
+            "створимо детальну",
+            "ось детальна",
+            "нижче наведено",
+        ]
+        
+        skip_intro_lines = True
+        for line in lines:
+            line_stripped = line.strip()
+            line_lower = line_stripped.lower()
+            
+            # Skip intro lines
+            if skip_intro_lines:
+                # Check if this line contains intro phrases
+                is_intro_line = any(phrase in line_lower for phrase in intro_phrases_lower)
+                
+                # Also skip lines that are just "`html" or similar markers
+                if line_stripped in ['`html', '```html', '```', '`']:
+                    continue
+                
+                # Skip short intro lines (less than 50 chars and contain intro phrases)
+                if is_intro_line and len(line_stripped) < 100:
+                    continue
+                
+                # If we find HTML tags or longer content, stop skipping
+                if '<' in line_stripped or len(line_stripped) > 50:
+                    skip_intro_lines = False
+            
+            if not skip_intro_lines or len(line_stripped) > 50:
+                cleaned_lines.append(line)
+        
+        html_content = '\n'.join(cleaned_lines)
+        
+        # Remove markdown code block markers if present
+        html_content = html_content.strip()
+        if html_content.startswith('```html'):
+            html_content = html_content[7:].strip()
+        elif html_content.startswith('```'):
+            html_content = html_content[3:].strip()
+        if html_content.endswith('```'):
+            html_content = html_content[:-3].strip()
+        
         return topic, html_content
     except Exception as e:
         error_msg = str(e)
@@ -82,7 +141,3 @@ def generate_article(country: str, city: str, category: str, google_info: str) -
         
         log_error(f"Gemini API error: {e}")
         raise
-
-
-
-
