@@ -1,13 +1,27 @@
 """
 Image service module - handles Pexels API and WordPress media upload.
-No text generation or post publishing logic here.
+Adds relevancy filtering, horizontal preference and size optimization.
 """
 
 import random
-import requests
+import re
 from typing import Optional
-from src.config import get_pexels_api_key, get_wp_url, get_wp_username, get_wp_app_password
+
+import requests
+
+from src.config import get_pexels_api_key, get_wp_app_password, get_wp_url, get_wp_username
 from src.utils.logger import log_error
+
+
+def _score_photo(photo: dict, keywords: list[str]) -> int:
+    score = 0
+    alt = photo.get("alt", "").lower()
+    for word in keywords:
+        if word in alt:
+            score += 2
+    if photo.get("width", 0) >= photo.get("height", 0):
+        score += 1
+    return score
 
 
 def get_pexels_image(query: str) -> Optional[str]:
@@ -21,15 +35,28 @@ def get_pexels_image(query: str) -> Optional[str]:
         Image URL or None if not found
     """
     try:
-        headers = {'Authorization': get_pexels_api_key()}
-        url = f"https://api.pexels.com/v1/search?query={query}&per_page=1&orientation=landscape"
+        headers = {"Authorization": get_pexels_api_key()}
+        params = {
+            "query": query,
+            "per_page": 8,
+            "orientation": "landscape",
+            "size": "large",
+        }
+        url = "https://api.pexels.com/v1/search"
         
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, params=params, timeout=10)
         response.raise_for_status()
         
         data = response.json()
-        if data.get('photos'):
-            return data['photos'][0]['src']['large']
+        photos = data.get("photos", [])
+        if not photos:
+            return None
+
+        keywords = [word.lower() for word in re.split(r"\\s+", query) if len(word) > 2]
+        best_photo = max(photos, key=lambda p: _score_photo(p, keywords))
+        sources = best_photo.get("src", {})
+        # Prefer optimized sizes to avoid huge files
+        return sources.get("large") or sources.get("medium") or sources.get("large2x") or sources.get("original")
     except Exception as e:
         log_error(f"Pexels API error: {e}")
     
@@ -59,8 +86,8 @@ def upload_image_to_wp(image_url: str, title: str) -> Optional[int]:
         # WordPress API authentication
         auth = (get_wp_username(), get_wp_app_password())
         headers = {
-            'Content-Type': 'image/jpeg',
-            'Content-Disposition': f'attachment; filename={filename}'
+            "Content-Type": "image/jpeg",
+            "Content-Disposition": f"attachment; filename={filename}",
         }
         
         # Upload to WordPress
@@ -70,18 +97,17 @@ def upload_image_to_wp(image_url: str, title: str) -> Optional[int]:
             data=img_data,
             headers=headers,
             auth=auth,
-            timeout=30
+            timeout=30,
         )
         
         if response.status_code == 201:
-            return response.json()['id']
+            return response.json()["id"]
         else:
             log_error(f"WordPress upload failed: {response.status_code} - {response.text}")
     except Exception as e:
         log_error(f"Image upload failed: {e}")
     
     return None
-
 
 
 
