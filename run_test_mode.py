@@ -12,43 +12,9 @@ from src.google_context import get_google_context
 from src.image_service import get_pexels_image, upload_image_to_wp
 from src.seo_generator import generate_article
 from src.utils.logger import log, log_error, log_success
-import requests
-from src.config import get_wp_url, get_wp_username, get_wp_app_password
-
-
-def publish_as_draft(title: str, content: str, featured_media_id=None):
-    """Publish article as DRAFT instead of publish."""
-    try:
-        api_url = f"{get_wp_url()}/wp-json/wp/v2/posts"
-        auth = (get_wp_username(), get_wp_app_password())
-        
-        data = {
-            'title': f"[TEST] {title}",
-            'content': content,
-            'status': 'draft'  # DRAFT mode
-        }
-        
-        if featured_media_id:
-            data['featured_media'] = featured_media_id
-        
-        response = requests.post(
-            api_url,
-            json=data,
-            auth=auth,
-            timeout=30
-        )
-        
-        if response.status_code == 201:
-            post_id = response.json()['id']
-            log_success(f"Article saved as DRAFT! Post ID: {post_id}")
-            log(f"View: {get_wp_url()}/wp-admin/post.php?post={post_id}&action=edit")
-            return True
-        else:
-            log_error(f"Publish failed: {response.status_code} - {response.text}")
-            return False
-    except Exception as e:
-        log_error(f"Publish article failed: {e}")
-        return False
+from src.utils.content_enhancer import inject_internal_links
+from src.utils.history import find_internal_links, get_recent_titles, is_duplicate_title, load_history
+from src.wp_publisher import publish_article
 
 
 def select_task(max_attempts: int = 100):
@@ -81,6 +47,8 @@ def main():
     except Exception as e:
         log_error(f"Initialization failed: {e}")
         return
+
+    history_records = load_history()
     
     article_count = 0
     max_test_articles = 3  # Limit for testing
@@ -112,17 +80,39 @@ def main():
             
             # 4. Generate article
             log("Generating article...")
-            title, html_content = generate_article(country, city, category, google_context)
+            recent_titles = get_recent_titles(history_records)
+            article = generate_article(country, city, category, google_context, recent_titles)
+
+            if is_duplicate_title(article.title, history_records):
+                log_error(f"Duplicate title detected, skipping: {article.title}")
+                time.sleep(10)
+                continue
+
+            internal_links = find_internal_links(article, history_records)
+            article.html_content = inject_internal_links(article.html_content, internal_links)
+
+            # Make draft-specific markers to avoid URL collisions
+            article.title = f"[TEST] {article.title}"
+            article.slug = f"test-{article.slug}"
             
             # 5. Publish as DRAFT (test mode)
             log("Publishing as DRAFT...")
-            success = publish_as_draft(title, html_content, image_id)
+            success = publish_article(article, image_id, status='draft')
             
             if success:
                 # 6. Mark as posted (even though it's draft, to avoid duplicates in test)
                 mark_posted(country, city, category)
+                history_records.append(
+                    {
+                        "title": article.title,
+                        "slug": article.slug,
+                        "url": "",
+                        "tags": article.tags,
+                        "category": article.category,
+                    }
+                )
                 article_count += 1
-                log_success(f"Done! Article '{title}' saved as DRAFT.")
+                log_success(f"Done! Article '{article.title}' saved as DRAFT.")
             else:
                 log_error("Failed to save article. Skipping mark_posted.")
             
@@ -148,7 +138,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
 
 

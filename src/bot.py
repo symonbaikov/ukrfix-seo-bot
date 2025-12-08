@@ -12,7 +12,16 @@ from src.google_context import get_google_context
 from src.image_service import get_pexels_image, upload_image_to_wp
 from src.seo_generator import generate_article
 from src.wp_publisher import publish_article
+from src.utils.content_enhancer import inject_internal_links
+from src.utils.history import (
+    add_article_record,
+    find_internal_links,
+    get_recent_titles,
+    is_duplicate_title,
+    load_history,
+)
 from src.utils.logger import log, log_error, log_success
+from src.config import get_wp_url
 
 
 def select_task(max_attempts: int = 100) -> tuple[str, str, str] | None:
@@ -50,6 +59,8 @@ def main() -> None:
     except Exception as e:
         log_error(f"Initialization failed: {e}")
         return
+
+    history_records = load_history()
     
     while True:
         try:
@@ -78,15 +89,29 @@ def main() -> None:
             
             # 4. Generate article
             log("Generating article...")
-            title, html_content = generate_article(country, city, category, google_context)
+            recent_titles = get_recent_titles(history_records)
+            article = generate_article(country, city, category, google_context, recent_titles)
+
+            if is_duplicate_title(article.title, history_records):
+                log_error(f"Duplicate title detected, skipping: {article.title}")
+                time.sleep(10)
+                continue
+
+            internal_links = find_internal_links(article, history_records)
+            article.html_content = inject_internal_links(article.html_content, internal_links)
             
             # 5. Publish article
             log("Publishing...")
-            publish_article(title, html_content, image_id)
+            result = publish_article(article, image_id)
+            if not result:
+                log_error("Publishing failed, will retry later.")
+                time.sleep(300)
+                continue
             
             # 6. Mark as posted
             mark_posted(country, city, category)
-            log_success(f"Done! Article '{title}' published.")
+            history_records = add_article_record(article, get_wp_url(), history_records)
+            log_success(f"Done! Article '{article.title}' published.")
             
             # 7. Sleep (80-100 minutes for ~15 articles per day)
             wait_time = random.randint(4800, 6000)
@@ -100,4 +125,3 @@ def main() -> None:
             log_error(f"Error in main loop: {e}")
             log("Sleeping 10 minutes before retry...")
             time.sleep(600)
-
