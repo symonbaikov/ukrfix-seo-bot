@@ -17,6 +17,11 @@ try:
 except Exception:  # pragma: no cover - fallback when package is absent
     to_latin = None
 
+try:
+    from deep_translator import GoogleTranslator
+except Exception:  # pragma: no cover - optional dependency
+    GoogleTranslator = None
+
 # Basic Ukrainian → Latin mapping as a safe fallback
 UA_MAP = {
     "а": "a",
@@ -148,6 +153,22 @@ def transliterate_uk(text: str) -> str:
     return _fallback_transliterate(text)
 
 
+def translate_to_english(text: str) -> Optional[str]:
+    """
+    Translate text to English for slug friendliness.
+    Returns None if translation is unavailable or failed.
+    """
+    if not GoogleTranslator:
+        return None
+    try:
+        translated = GoogleTranslator(source="auto", target="en").translate(text)
+        if translated and re.search(r"[a-zA-Z]", translated):
+            return translated
+    except Exception:
+        return None
+    return None
+
+
 def _tokenize(text: str) -> List[str]:
     cleaned = re.sub(r"[^a-zA-Z0-9\s_-]", " ", text)
     parts = re.split(r"[\s_-]+", cleaned.lower())
@@ -189,13 +210,14 @@ def generate_slug(text: str, max_length: int = 75) -> str:
     Generate SEO-friendly slug.
 
     Steps:
-        - transliterate Ukrainian → Latin
+        - translate to English when possible; otherwise transliterate Ukrainian → Latin
         - drop stop words/special symbols
         - keep 3–5 meaningful keywords when heading is long
         - enforce max length and collapse hyphens
     """
-    transliterated = transliterate_uk(text)
-    tokens = _tokenize(transliterated)
+    source_text = translate_to_english(text) or transliterate_uk(text)
+
+    tokens = _tokenize(source_text)
     meaningful = _filter_stop_words(tokens)
     if not meaningful:
         meaningful = tokens

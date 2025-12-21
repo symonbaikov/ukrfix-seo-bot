@@ -3,7 +3,7 @@
 ## SEO Content & Structure
 - **Title optimization**: AI returns raw title, then we normalize length, remove stop-words, and keep title/sentence case variants (`src/utils/title_optimizer.py`, used in `src/seo_generator.py`).
 - **Meta description**: 140–160 chars with CTR cues (⭐ найкраще, швидко, корисно) auto-filled when missing (`src/seo_generator.py`).
-- **Slug generation**: Takes H1, transliterates to Latin, drops stop-words/symbols, keeps 3–5 keywords, avoids template slugs, 75-char cap (`src/utils/slugify.py`).
+- **Slug generation**: Takes H1, auto-translates to English (fallback transliteration), drops stop-words/symbols, keeps 3–5 keywords, avoids template slugs, 75-char cap (`src/utils/slugify.py`).
 - **Rich HTML**: Prompts enforce h1/h2/h3, ul/li, short paragraphs, sample ad snippet, and auto-append CTA block (`src/utils/content_enhancer.py`).
 
 ## Taxonomy & Publishing
