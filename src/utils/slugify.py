@@ -1,11 +1,16 @@
 """
 Slug generation utilities with Ukrainian transliteration support.
+
+Rules:
+- Use H1/title text as source, transliterate to Latin, keep words readable.
+- Strip stop words/special symbols, collapse hyphens, and cap length.
+- Keep 3–5 meaningful keywords when headings are long; avoid template slugs.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import Iterable, List, Optional
 
 try:
     from cyrtranslit import to_latin
@@ -48,6 +53,71 @@ UA_MAP = {
     "я": "ya",
 }
 
+STOP_WORDS = {
+    # Ukrainian (transliterated) stop words
+    "i",
+    "ta",
+    "a",
+    "y",
+    "yi",
+    "yiyi",
+    "ale",
+    "abo",
+    "chi",
+    "pro",
+    "dlia",
+    "dla",
+    "dlya",
+    "na",
+    "u",
+    "v",
+    "za",
+    "vid",
+    "do",
+    "po",
+    "pid",
+    "nad",
+    "pid",
+    "pere",
+    "yak",
+    "tse",
+    "ce",
+    "hto",
+    "khto",
+    "tylki",
+    "tilky",
+    "tilki",
+    "te",
+    "tsya",
+    "tsyi",
+    "tsye",
+    "miz",
+    "miz",
+    "z",
+    "iz",
+    # English stop words
+    "the",
+    "and",
+    "or",
+    "for",
+    "of",
+    "to",
+    "in",
+    "on",
+    "with",
+    "by",
+    "from",
+    "a",
+    "an",
+    "how",
+    "where",
+    "what",
+    "why",
+    "when",
+    "best",
+    "top",
+}
+
 
 def _fallback_transliterate(text: str) -> str:
     transliterated = []
@@ -74,22 +144,82 @@ def transliterate_uk(text: str) -> str:
     return _fallback_transliterate(text)
 
 
-def generate_slug(text: str, max_length: int = 60) -> str:
+def _tokenize(text: str) -> List[str]:
+    cleaned = re.sub(r"[^a-zA-Z0-9\s_-]", " ", text)
+    parts = re.split(r"[\s_-]+", cleaned.lower())
+    return [part for part in parts if part]
+
+
+def _filter_stop_words(words: Iterable[str]) -> List[str]:
+    filtered: List[str] = []
+    seen = set()
+    for word in words:
+        if word in STOP_WORDS:
+            continue
+        if word in seen:
+            continue
+        seen.add(word)
+        filtered.append(word)
+    return filtered
+
+
+def _trim_keywords(words: List[str], max_words: int = 5) -> List[str]:
+    """Keep 3–5 meaningful keywords when source is long."""
+    if len(words) <= max_words:
+        return words
+    trimmed = words[:max_words]
+    return trimmed if len(trimmed) >= 3 else words[:3]
+
+
+def _collapse_hyphens(slug: str) -> str:
+    slug = re.sub(r"-+", "-", slug)
+    return slug.strip("-")
+
+
+def _looks_like_template(slug: str) -> bool:
+    return bool(re.match(r"^(article|post|page|blog)-\d+$", slug))
+
+
+def generate_slug(text: str, max_length: int = 75) -> str:
     """
     Generate SEO-friendly slug.
 
     Steps:
         - transliterate Ukrainian → Latin
-        - remove special symbols
+        - drop stop words/special symbols
+        - keep 3–5 meaningful keywords when heading is long
         - enforce max length and collapse hyphens
     """
     transliterated = transliterate_uk(text)
-    cleaned = re.sub(r"[^a-zA-Z0-9\s-]", "", transliterated)
-    cleaned = cleaned.lower()
-    cleaned = re.sub(r"\s+", "-", cleaned)
-    cleaned = re.sub(r"-+", "-", cleaned).strip("-")
+    tokens = _tokenize(transliterated)
+    meaningful = _filter_stop_words(tokens)
+    if not meaningful:
+        meaningful = tokens
 
-    if len(cleaned) > max_length:
-        cleaned = cleaned[:max_length].rstrip("-")
+    meaningful = _trim_keywords(meaningful)
+    slug = _collapse_hyphens("-".join(meaningful))
 
-    return cleaned or "ukrfix-article"
+    if len(slug) > max_length:
+        slug = slug[:max_length]
+        slug = _collapse_hyphens(slug)
+
+    if _looks_like_template(slug) or not slug:
+        slug = "ukrfix-article"
+
+    return slug or "ukrfix-article"
+
+
+def extract_h1_text(html: str) -> Optional[str]:
+    """
+    Extract first <h1>...</h1> text for slug source.
+    Strips nested tags to keep plain text.
+    """
+    if not html:
+        return None
+    match = re.search(r"<h1[^>]*>(.*?)</h1>", html, flags=re.I | re.S)
+    if not match:
+        return None
+    h1 = match.group(1)
+    h1 = re.sub(r"<[^>]+>", " ", h1)
+    h1 = re.sub(r"\s+", " ", h1).strip()
+    return h1 or None

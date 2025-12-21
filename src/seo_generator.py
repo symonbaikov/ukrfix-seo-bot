@@ -17,7 +17,7 @@ from src.models.article import ArticleData
 from src.utils.content_enhancer import CTA_BUTTON, CTA_TEXT, ensure_cta_block
 from src.utils.history import get_recent_titles
 from src.utils.logger import log_error
-from src.utils.slugify import generate_slug
+from src.utils.slugify import extract_h1_text, generate_slug
 from src.utils.title_optimizer import optimize_title
 
 
@@ -185,7 +185,8 @@ def generate_article(country: str, city: str, category: str, google_info: str, r
             html_content = _clean_html_content(response.text)
         html_content = ensure_cta_block(html_content)
 
-        slug_source = payload.get("slug") or chosen_title
+        h1_text = extract_h1_text(html_content)
+        slug_source = h1_text or payload.get("slug") or chosen_title
         slug = generate_slug(slug_source)
 
         return ArticleData(
