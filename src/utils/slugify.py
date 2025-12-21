@@ -138,7 +138,11 @@ def transliterate_uk(text: str) -> str:
     """Transliterate Ukrainian text to Latin, using cyrtranslit if available."""
     if to_latin:
         try:
-            return to_latin(text, "uk")
+            converted = to_latin(text, "uk")
+            # cyrtranslit may return original text for mixed/unknown chars; fallback if Cyrillic remains
+            if re.search(r"[\\u0400-\\u04FF]", converted):
+                return _fallback_transliterate(text)
+            return converted
         except Exception:
             pass
     return _fallback_transliterate(text)
