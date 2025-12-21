@@ -10,7 +10,7 @@ import random
 import re
 from typing import Any, Dict, List, Optional
 
-import google.generativeai as genai
+from google import genai
 
 from src.config import get_gemini_api_key, get_gemini_model_name
 from src.models.article import ArticleData
@@ -167,10 +167,12 @@ def generate_article(country: str, city: str, category: str, google_info: str, r
     prompt = _build_prompt(topic, country, city, category, google_info, recent_titles)
     
     try:
-        genai.configure(api_key=get_gemini_api_key())
+        client = genai.Client(api_key=get_gemini_api_key())
         model_name = get_gemini_model_name()
-        model = genai.GenerativeModel(model_name)
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+        )
         payload = _extract_json_block(response.text)
 
         raw_title = payload.get("title") or topic
