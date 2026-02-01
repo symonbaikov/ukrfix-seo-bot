@@ -4,9 +4,9 @@ Only this module communicates with history.db.
 """
 
 import sqlite3
-from typing import Optional
-from src.utils.logger import log_error
+from typing import List, Optional, Tuple
 
+from src.utils.logger import log_error
 
 DB_PATH = "history.db"
 
@@ -19,9 +19,9 @@ def init_db() -> None:
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS posted
+        c.execute("""CREATE TABLE IF NOT EXISTS posted
                      (country text, city text, category text,
-                      UNIQUE(country, city, category))''')
+                      UNIQUE(country, city, category))""")
         conn.commit()
         conn.close()
     except sqlite3.Error as e:
@@ -32,12 +32,12 @@ def init_db() -> None:
 def is_posted(country: str, city: str, category: str) -> bool:
     """
     Check if a combination of country, city, category was already posted.
-    
+
     Args:
         country: Country name
         city: City name
         category: Category name
-        
+
     Returns:
         True if combination exists, False otherwise
     """
@@ -46,7 +46,7 @@ def is_posted(country: str, city: str, category: str) -> bool:
         c = conn.cursor()
         c.execute(
             "SELECT * FROM posted WHERE country=? AND city=? AND category=?",
-            (country, city, category)
+            (country, city, category),
         )
         result = c.fetchone() is not None
         conn.close()
@@ -59,7 +59,7 @@ def is_posted(country: str, city: str, category: str) -> bool:
 def mark_posted(country: str, city: str, category: str) -> None:
     """
     Mark a combination as posted in the database.
-    
+
     Args:
         country: Country name
         city: City name
@@ -69,8 +69,7 @@ def mark_posted(country: str, city: str, category: str) -> None:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute(
-            "INSERT OR IGNORE INTO posted VALUES (?, ?, ?)",
-            (country, city, category)
+            "INSERT OR IGNORE INTO posted VALUES (?, ?, ?)", (country, city, category)
         )
         conn.commit()
         conn.close()
@@ -79,7 +78,57 @@ def mark_posted(country: str, city: str, category: str) -> None:
         raise
 
 
+def get_posted_count() -> int:
+    """
+    Get total number of posted combinations.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM posted")
+        count = c.fetchone()[0]
+        conn.close()
+        return count
+    except sqlite3.Error as e:
+        log_error(f"Database query failed: {e}")
+        raise
 
 
+def get_posted_combinations(limit: Optional[int] = None) -> List[Tuple[str, str, str]]:
+    """
+    Get posted combinations from the database.
+
+    Args:
+        limit: Optional limit on number of rows to return
+
+    Returns:
+        List of (country, city, category)
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        if limit is not None:
+            c.execute("SELECT country, city, category FROM posted LIMIT ?", (limit,))
+        else:
+            c.execute("SELECT country, city, category FROM posted")
+        rows = c.fetchall()
+        conn.close()
+        return rows
+    except sqlite3.Error as e:
+        log_error(f"Database query failed: {e}")
+        raise
 
 
+def reset_posted() -> None:
+    """
+    Delete all posted combinations.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("DELETE FROM posted")
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as e:
+        log_error(f"Database reset failed: {e}")
+        raise
